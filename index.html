@@ -1,0 +1,976 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WORDLE 🇮🇩</title>
+  <script src="/socket.io/socket.io.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800;900&family=Noto+Sans:wght@400;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0f0f13;
+      --fg: #f0eee8;
+      --muted: #666;
+      --tile-bg: #1a1a22;
+      --tile-border: #2e2e3e;
+      --tile-active: #777;
+      --tile-text: #fff;
+      --key-bg: #252532;
+      --key-absent: #1a1a24;
+      --correct: #4a9c59;
+      --present: #c8962a;
+      --absent: #1c1c28;
+      --border: #2a2a3a;
+      --accent: #7c5cbf;
+      --green: #4a9c59;
+      --gold: #c8962a;
+      --card: #13131c;
+      --msg-bg: #1e1e2e;
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      font-family: 'Noto Sans', sans-serif;
+      color: var(--fg);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px 16px 60px;
+      background-image:
+        radial-gradient(ellipse at 15% 15%, #1c0f30 0%, transparent 50%),
+        radial-gradient(ellipse at 85% 85%, #0e1a30 0%, transparent 50%);
+    }
+    h1, h2, .mono { font-family: 'Syne', sans-serif; }
+    button { cursor: pointer; font-family: 'Noto Sans', sans-serif; }
+    button:hover { opacity: 0.82; }
+    input:focus { outline: none; border-color: var(--accent) !important; }
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+    /* ── Layout ── */
+    #app { width: 100%; max-width: 420px; }
+    .screen { display: none; flex-direction: column; align-items: center; gap: 16px; width: 100%; }
+    .screen.active { display: flex; }
+
+    /* ── Header ── */
+    .header {
+      display: flex; align-items: center; gap: 10px;
+      width: 100%; margin-bottom: 4px;
+    }
+    .header h2 { flex: 1; text-align: center; font-size: 17px; letter-spacing: 3px; }
+    .room-badge {
+      font-size: 11px; background: var(--tile-bg);
+      padding: 4px 10px; border-radius: 6px;
+      border: 1px solid var(--border); letter-spacing: 2px;
+      font-family: 'Syne', sans-serif;
+    }
+
+    /* ── Buttons ── */
+    .btn {
+      border: none; border-radius: var(--radius);
+      padding: 10px 18px; font-weight: 700; font-size: 13px;
+      letter-spacing: 1px; transition: opacity 0.15s; color: #fff;
+      white-space: nowrap;
+    }
+    .btn-back  { background: #2a2a3a; }
+    .btn-green { background: linear-gradient(135deg, #4a9c59, #2d7a44); }
+    .btn-gold  { background: linear-gradient(135deg, #c8962a, #9a6e10); }
+    .btn-purple{ background: linear-gradient(135deg, #7c5cbf, #5a3e9e); }
+    .btn-full  { width: 100%; padding: 14px 0; font-size: 15px; }
+    .btn-sm    { padding: 8px 14px; font-size: 12px; }
+
+    /* ── Input ── */
+    .inp {
+      background: var(--tile-bg); color: var(--fg);
+      border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 11px 14px; font-family: 'Noto Sans', sans-serif;
+      font-size: 15px; width: 100%;
+    }
+    .inp-center { text-align: center; letter-spacing: 4px; font-family: 'Syne', sans-serif; font-size: 18px; }
+    .inp-code   { text-align: center; letter-spacing: 6px; font-family: 'Syne', sans-serif; font-size: 20px; text-transform: uppercase; }
+
+    /* ── Card ── */
+    .card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 14px 16px; width: 100%;
+    }
+    .card-center { text-align: center; }
+    .label { font-size: 10px; color: var(--muted); letter-spacing: 3px; text-transform: uppercase; margin-bottom: 6px; }
+
+    /* ── Lang Toggle ── */
+    .lang-toggle {
+      display: flex; gap: 5px; background: var(--tile-bg);
+      border-radius: 8px; padding: 4px; border: 1px solid var(--border);
+    }
+    .lang-btn {
+      border: none; border-radius: 6px; padding: 7px 14px;
+      font-weight: 700; font-size: 12px; letter-spacing: 0.5px;
+      transition: all 0.2s; background: transparent; color: var(--muted);
+    }
+    .lang-btn.active { background: var(--accent); color: #fff; }
+
+    /* ── Grid ── */
+    .grid { display: flex; flex-direction: column; gap: 4px; }
+    .grid-row { display: flex; gap: 4px; }
+    .tile {
+      width: 52px; height: 52px; display: flex; align-items: center;
+      justify-content: center; font-size: 21px; font-weight: 900;
+      border: 2px solid var(--tile-border); background: var(--tile-bg);
+      color: var(--fg); border-radius: 5px; font-family: 'Syne', sans-serif;
+      transition: transform 0.1s, background 0.3s, border-color 0.15s;
+      user-select: none;
+    }
+    .tile.filled { border-color: var(--tile-active); transform: scale(1.06); }
+    .tile.correct { background: var(--correct); color: #fff; border-color: var(--correct); box-shadow: 0 0 14px rgba(74,156,89,0.45); }
+    .tile.present { background: var(--present); color: #fff; border-color: var(--present); box-shadow: 0 0 10px rgba(200,150,42,0.4); }
+    .tile.absent  { background: var(--absent);  color: #fff; border-color: var(--absent); }
+
+    /* ── Keyboard ── */
+    .keyboard { display: flex; flex-direction: column; gap: 5px; align-items: center; }
+    .kb-row { display: flex; gap: 4px; }
+    .key {
+      height: 46px; border: 1px solid var(--border); border-radius: 6px;
+      background: var(--key-bg); color: var(--fg);
+      font-weight: 700; font-size: 13px; letter-spacing: 0.5px;
+      transition: background 0.3s; min-width: 34px; padding: 0 2px;
+    }
+    .key.wide { min-width: 54px; font-size: 10px; }
+    .key.correct { background: var(--correct); color: #fff; border-color: var(--correct); }
+    .key.present { background: var(--present); color: #fff; border-color: var(--present); }
+    .key.absent  { background: var(--key-absent); color: #555; border-color: var(--key-absent); }
+
+    /* ── Message Toast ── */
+    #toast {
+      position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+      background: var(--msg-bg); color: var(--fg); padding: 10px 22px;
+      border-radius: 8px; font-weight: 700; font-size: 14px;
+      border: 1px solid var(--border); display: none; z-index: 999;
+      animation: fadeIn 0.2s ease; text-align: center; max-width: 300px;
+    }
+
+    /* ── Scoreboard ── */
+    .scoreboard { display: flex; flex-direction: column; gap: 5px; }
+    .player-row {
+      display: flex; align-items: center; gap: 8px;
+      padding: 6px 10px; border-radius: 7px;
+      border: 1px solid transparent; transition: all 0.3s;
+    }
+    .player-row.me {
+      background: rgba(124,92,191,0.15);
+      border-color: rgba(124,92,191,0.35);
+    }
+    .player-name { flex: 1; font-size: 13px; font-weight: 700; }
+    .player-status { font-size: 11px; color: var(--correct); letter-spacing: 1px; }
+
+    /* ── Winner Banner ── */
+    .winner-banner {
+      border-radius: var(--radius); padding: 14px 16px;
+      text-align: center; width: 100%;
+      animation: bounceIn 0.4s ease;
+    }
+    .winner-banner.me-win { background: rgba(74,156,89,0.12); border: 1px solid var(--correct); }
+    .winner-banner.me-lose { background: rgba(200,150,42,0.1); border: 1px solid var(--present); }
+
+    /* ── Home Screen ── */
+    .home-title {
+      font-size: 56px; letter-spacing: 8px; font-weight: 900; line-height: 1;
+      background: linear-gradient(135deg, #c8962a 0%, #7c5cbf 50%, #4a9c59 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text; text-align: center;
+    }
+    .home-sub { font-size: 11px; color: var(--muted); letter-spacing: 5px; text-align: center; margin-top: 6px; }
+    .mode-btn {
+      width: 100%; border: none; border-radius: 12px; padding: 0;
+      text-align: left; overflow: hidden; transition: transform 0.15s;
+    }
+    .mode-btn:hover { transform: translateY(-2px); }
+    .mode-btn-inner { padding: 18px 20px; }
+    .mode-title { font-size: 16px; font-weight: 900; letter-spacing: 2px; color: #fff; font-family: 'Syne', sans-serif; }
+    .mode-desc  { font-size: 12px; color: rgba(255,255,255,0.7); margin-top: 4px; padding-left: 32px; }
+    .legend-dot { width: 22px; height: 22px; border-radius: 4px; flex-shrink: 0; }
+
+    /* ── Divider ── */
+    .divider { color: var(--muted); font-size: 11px; letter-spacing: 2px; text-align: center; }
+
+    /* ── Waiting ── */
+    .waiting-dots { display: flex; gap: 6px; justify-content: center; margin-top: 8px; }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--accent); animation: pulse 1.2s infinite;
+    }
+    .dot:nth-child(2) { animation-delay: 0.2s; }
+    .dot:nth-child(3) { animation-delay: 0.4s; }
+
+    /* ── Error text ── */
+    .err { color: #e05555; font-size: 13px; text-align: center; }
+
+    /* ── Animations ── */
+    @keyframes shake {
+      0%,100% { transform: translateX(0); }
+      20% { transform: translateX(-8px); }
+      40% { transform: translateX(8px); }
+      60% { transform: translateX(-5px); }
+      80% { transform: translateX(5px); }
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateX(-50%) translateY(-6px); }
+      to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+    }
+    @keyframes bounceIn {
+      0%   { transform: scale(0.85); opacity: 0; }
+      60%  { transform: scale(1.04); }
+      100% { transform: scale(1); opacity: 1; }
+    }
+    @keyframes pulse {
+      0%,100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.4); opacity: 0.5; }
+    }
+    .shake { animation: shake 0.4s ease !important; }
+  </style>
+</head>
+<body>
+
+<div id="app">
+
+  <!-- ══════════════════════════════════════
+       HOME
+  ═══════════════════════════════════════ -->
+  <div id="screen-home" class="screen active">
+    <div style="margin-top:36px; margin-bottom:8px;">
+      <div class="home-title">WORDLE</div>
+      <div class="home-sub">TEBAK KATA · 3 MODE · 🇮🇩 + 🇺🇸</div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:10px;width:100%;margin-top:8px;">
+      <button class="mode-btn" style="background:linear-gradient(135deg,#4a9c59,#2d7a44);box-shadow:0 6px 24px rgba(74,156,89,0.25);" onclick="showScreen('single')">
+        <div class="mode-btn-inner">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <span style="font-size:22px;">🎯</span>
+            <span class="mode-title">SINGLEPLAYER</span>
+          </div>
+          <div class="mode-desc">Tebak kata yang dipilih sistem</div>
+        </div>
+      </button>
+
+      <button class="mode-btn" style="background:linear-gradient(135deg,#c8962a,#9a6e10);box-shadow:0 6px 24px rgba(200,150,42,0.25);" onclick="showScreen('battle-menu')">
+        <div class="mode-btn-inner">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <span style="font-size:22px;">⚔️</span>
+            <span class="mode-title">BATTLE 1v1</span>
+          </div>
+          <div class="mode-desc">Pilih kata untuk ditebak lawan • Duluan menang!</div>
+        </div>
+      </button>
+
+      <button class="mode-btn" style="background:linear-gradient(135deg,#7c5cbf,#5a3e9e);box-shadow:0 6px 24px rgba(124,92,191,0.25);" onclick="showScreen('race-menu')">
+        <div class="mode-btn-inner">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <span style="font-size:22px;">🏁</span>
+            <span class="mode-title">RACE MODE</span>
+          </div>
+          <div class="mode-desc">Kata dari sistem, siapa cepat dia menang!</div>
+        </div>
+      </button>
+    </div>
+
+    <div class="card" style="margin-top:8px;">
+      <div class="label">Cara Baca</div>
+      <div style="display:flex;flex-direction:column;gap:7px;">
+        <div style="display:flex;align-items:center;gap:10px;"><div class="legend-dot" style="background:var(--correct);"></div><span style="font-size:12px;color:var(--muted);">Huruf tepat di posisi yang benar</span></div>
+        <div style="display:flex;align-items:center;gap:10px;"><div class="legend-dot" style="background:var(--present);"></div><span style="font-size:12px;color:var(--muted);">Ada di kata, tapi posisi salah</span></div>
+        <div style="display:flex;align-items:center;gap:10px;"><div class="legend-dot" style="background:var(--absent);"></div><span style="font-size:12px;color:var(--muted);">Huruf tidak ada dalam kata</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════
+       SINGLEPLAYER
+  ═══════════════════════════════════════ -->
+  <div id="screen-single" class="screen">
+    <div class="header">
+      <button class="btn btn-back btn-sm" onclick="showScreen('home')">← Kembali</button>
+      <h2>SINGLEPLAYER</h2>
+      <button class="btn btn-purple btn-sm" onclick="initSingle()">BARU</button>
+    </div>
+    <div class="lang-toggle">
+      <button class="lang-btn active" id="single-lang-id" onclick="setSingleLang('id')">🇮🇩 Indonesia</button>
+      <button class="lang-btn" id="single-lang-en" onclick="setSingleLang('en')">🇺🇸 English</button>
+    </div>
+    <div id="single-board"></div>
+    <div class="keyboard" id="single-kb"></div>
+    <button id="single-again-btn" class="btn btn-green btn-full" style="display:none;margin-top:8px;" onclick="initSingle()">🎉 Main Lagi!</button>
+  </div>
+
+  <!-- ══════════════════════════════════════
+       BATTLE MENU
+  ═══════════════════════════════════════ -->
+  <div id="screen-battle-menu" class="screen">
+    <div class="header">
+      <button class="btn btn-back btn-sm" onclick="showScreen('home')">← Kembali</button>
+      <h2>⚔️ BATTLE 1v1</h2>
+    </div>
+    <div class="lang-toggle">
+      <button class="lang-btn active" id="battle-lang-id" onclick="setBattleLang('id')">🇮🇩 Indonesia</button>
+      <button class="lang-btn" id="battle-lang-en" onclick="setBattleLang('en')">🇺🇸 English</button>
+    </div>
+    <div class="card card-center">
+      <div class="label">Cara Bermain</div>
+      <div style="font-size:13px;color:var(--muted);line-height:1.8;">
+        Setiap pemain pilih kata rahasia untuk ditebak lawan.<br>
+        <span style="color:var(--correct);font-weight:700;">Duluan tebak kata lawan = MENANG! 🏆</span>
+      </div>
+    </div>
+    <input class="inp" id="battle-name" placeholder="Nama kamu..." maxlength="16" style="text-align:center;" />
+    <button class="btn btn-gold btn-full" onclick="battleCreate()">🎮 Buat Room (Player 1)</button>
+    <div class="divider">— ATAU GABUNG ROOM —</div>
+    <div style="display:flex;gap:8px;width:100%;">
+      <input class="inp inp-code" id="battle-join-code" placeholder="KODE ROOM" maxlength="5" style="flex:1;" />
+      <button class="btn btn-green" onclick="battleJoin()">Gabung</button>
+    </div>
+    <div id="battle-menu-err" class="err" style="display:none;"></div>
+  </div>
+
+  <!-- ══════════════════════════════════════
+       BATTLE WORD INPUT
+  ═══════════════════════════════════════ -->
+  <div id="screen-battle-word" class="screen">
+    <div class="header">
+      <button class="btn btn-back btn-sm" onclick="showScreen('home')">← Keluar</button>
+      <h2>⚔️ BATTLE 1v1</h2>
+      <div class="room-badge" id="battle-room-badge"></div>
+    </div>
+    <div class="card card-center" style="border-color:var(--accent);">
+      <div class="label">Kamu Bermain Sebagai</div>
+      <div id="battle-role-label" class="mono" style="font-size:22px;font-weight:900;color:var(--accent);"></div>
+    </div>
+    <div id="battle-waiting-opponent" style="text-align:center;padding:20px 0;display:none;">
+      <div style="font-size:13px;color:var(--muted);">Menunggu lawan bergabung...</div>
+      <div class="waiting-dots"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
+    </div>
+    <div id="battle-word-form">
+      <div style="font-size:13px;color:var(--muted);text-align:center;line-height:1.7;margin-bottom:12px;">
+        Pilih kata <strong>5 huruf</strong> yang harus ditebak lawan.<br>
+        <span style="color:#e05555;font-size:12px;">🔇 Jangan kasih tahu lawan!</span>
+      </div>
+      <input class="inp inp-center" id="battle-word-input" placeholder="KATA RAHASIA" maxlength="5"
+        oninput="this.value=this.value.toUpperCase()"
+        onkeydown="if(event.key==='Enter') battleSetWord()" style="margin-bottom:10px;" />
+      <div id="battle-word-err" class="err" style="display:none;margin-bottom:8px;"></div>
+      <button class="btn btn-gold btn-full" onclick="battleSetWord()">Kunci Kata ✓</button>
+    </div>
+    <div id="battle-word-locked" style="text-align:center;padding:20px;display:none;">
+      <div style="font-size:32px;margin-bottom:10px;">🔒</div>
+      <div class="mono" style="font-size:16px;letter-spacing:2px;">Kata terkunci!</div>
+      <div style="font-size:13px;color:var(--muted);margin-top:6px;">Menunggu lawan memilih kata...</div>
+      <div class="waiting-dots"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════
+       BATTLE GAME
+  ═══════════════════════════════════════ -->
+  <div id="screen-battle-game" class="screen">
+    <div class="header">
+      <button class="btn btn-back btn-sm" onclick="showScreen('home')">← Keluar</button>
+      <h2>⚔️ BATTLE 1v1</h2>
+      <div class="room-badge" id="battle-game-room-badge"></div>
+    </div>
+    <div class="card card-center" style="margin-bottom:4px;">
+      <div class="label">Tebak Kata Rahasia Lawan!</div>
+      <div id="battle-vs-label" style="font-size:13px;color:var(--muted);"></div>
+    </div>
+    <div id="battle-winner-banner" style="display:none;width:100%;"></div>
+    <div id="battle-board"></div>
+    <div class="keyboard" id="battle-kb"></div>
+    <div id="battle-end-btns" style="display:none;margin-top:10px;display:none;flex-direction:column;gap:8px;width:100%;">
+      <button id="battle-again-btn" class="btn btn-gold btn-full" onclick="battleRestart()">🔄 Main Lagi di Room</button>
+      <button class="btn btn-back btn-full" onclick="battleLeave()">🚪 Keluar Room</button>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════
+       RACE MENU
+  ═══════════════════════════════════════ -->
+  <div id="screen-race-menu" class="screen">
+    <div class="header">
+      <button class="btn btn-back btn-sm" onclick="showScreen('home')">← Kembali</button>
+      <h2>🏁 RACE MODE</h2>
+    </div>
+    <div class="lang-toggle">
+      <button class="lang-btn active" id="race-lang-id" onclick="setRaceLang('id')">🇮🇩 Indonesia</button>
+      <button class="lang-btn" id="race-lang-en" onclick="setRaceLang('en')">🇺🇸 English</button>
+    </div>
+    <div class="card card-center">
+      <div class="label">Cara Bermain</div>
+      <div style="font-size:13px;color:var(--muted);line-height:1.8;">
+        Semua pemain tebak <strong>kata yang sama</strong>.<br>
+        <span style="color:var(--accent);font-weight:700;">Paling cepat & sedikit tebakan = 🏆 JUARA!</span>
+      </div>
+    </div>
+    <input class="inp" id="race-name" placeholder="Nama kamu..." maxlength="16" style="text-align:center;" />
+    <button class="btn btn-purple btn-full" onclick="raceCreate()">🎮 Buat Room Baru</button>
+    <div class="divider">— ATAU GABUNG ROOM —</div>
+    <div style="display:flex;gap:8px;width:100%;">
+      <input class="inp inp-code" id="race-join-code" placeholder="KODE" maxlength="4" style="flex:1;"
+        onkeydown="if(event.key==='Enter') raceJoin()" />
+      <button class="btn btn-green" onclick="raceJoin()">Gabung</button>
+    </div>
+    <div id="race-menu-err" class="err" style="display:none;"></div>
+  </div>
+
+  <!-- ══════════════════════════════════════
+       RACE GAME
+  ═══════════════════════════════════════ -->
+  <div id="screen-race-game" class="screen">
+    <div class="header">
+      <button class="btn btn-back btn-sm" onclick="showScreen('home')">← Keluar</button>
+      <h2>🏁 RACE MODE</h2>
+      <div class="room-badge" id="race-room-badge"></div>
+    </div>
+    <!-- Scoreboard -->
+    <div class="card" style="width:100%;">
+      <div class="label" id="race-player-count">PEMAIN</div>
+      <div class="scoreboard" id="race-scoreboard"></div>
+    </div>
+    <div id="race-winner-banner" style="display:none;width:100%;"></div>
+    <div id="race-board"></div>
+    <div class="keyboard" id="race-kb"></div>
+    <div id="race-end-btns" style="display:none;margin-top:10px;flex-direction:column;gap:8px;width:100%;">
+      <button id="race-again-btn" class="btn btn-purple btn-full" onclick="raceRestart()">🔄 Main Lagi di Room</button>
+      <button class="btn btn-back btn-full" onclick="raceLeave()">🚪 Keluar Room</button>
+    </div>
+  </div>
+
+</div><!-- #app -->
+
+<div id="toast"></div>
+
+<script>
+// ══════════════════════════════════════════════════════
+//  WORD LISTS
+// ══════════════════════════════════════════════════════
+const WORDS_EN = ["ABOUT","ABOVE","ABUSE","ACTOR","ACUTE","ADMIT","ADOPT","ADULT","AFTER","AGAIN","AGENT","AGREE","AHEAD","ALARM","ALBUM","ALERT","ALIEN","ALIGN","ALIKE","ALLOW","ALONE","ALONG","ALTER","ANGEL","ANGER","ANGLE","ANGRY","ANKLE","APART","APPLE","APPLY","ARENA","ARGUE","ARISE","ARMOR","AROMA","ARRAY","ASIDE","ASSET","ATLAS","AUDIO","AUDIT","AVOID","AWARD","AWAKE","AWARE","AWFUL","BADLY","BAKER","BASIC","BASIS","BATCH","BEACH","BEARD","BEAST","BEGIN","BEING","BELOW","BENCH","BIRTH","BLACK","BLADE","BLAME","BLANK","BLAST","BLAZE","BLEED","BLEND","BLESS","BLIND","BLOCK","BLOOD","BLOOM","BLOWN","BLUNT","BOARD","BONUS","BOOST","BOUND","BRAIN","BRAND","BRAVE","BREAD","BREAK","BREED","BRICK","BRIDE","BRIEF","BRING","BROAD","BROKE","BROWN","BRUSH","BUILD","BUILT","BURST","BUYER","CABIN","CABLE","CARRY","CATCH","CAUSE","CHAIN","CHAIR","CHAOS","CHARM","CHART","CHASE","CHEAP","CHECK","CHEEK","CHEER","CHESS","CHEST","CHIEF","CHILD","CHINA","CHORD","CLAIM","CLASS","CLEAN","CLEAR","CLERK","CLICK","CLIMB","CLING","CLOCK","CLONE","CLOSE","CLOUD","COACH","COAST","COLOR","COMIC","CORAL","COUNT","COURT","COVER","CRACK","CRAFT","CRANE","CRASH","CRAZY","CREAM","CREST","CRIME","CROSS","CROWD","CROWN","CRUSH","CURVE","CYCLE","DAILY","DANCE","DEATH","DEBUT","DECAY","DELAY","DELTA","DENSE","DEPTH","DEVIL","DIGIT","DIRTY","DISCO","DOUBT","DRAFT","DRAIN","DRAMA","DREAM","DRESS","DRIFT","DRINK","DRIVE","DROVE","DRUNK","DYING","EAGLE","EARLY","EARTH","EIGHT","ELITE","EMAIL","EMPTY","ENEMY","ENJOY","ENTER","ENTRY","EQUAL","ERROR","ESSAY","EVENT","EVERY","EXACT","EXIST","EXTRA","FACED","FAITH","FALSE","FANCY","FAULT","FEAST","FENCE","FEVER","FIBER","FIELD","FIFTH","FIGHT","FINAL","FIRST","FIXED","FLAME","FLEET","FLESH","FLOAT","FLOOD","FLOOR","FLUID","FOCUS","FORCE","FOUND","FRAME","FRAUD","FRESH","FRONT","FROST","FRUIT","FULLY","FUNNY","GIANT","GIVEN","GLASS","GLOBE","GLORY","GLOVE","GRACE","GRADE","GRAIN","GRAND","GRANT","GRASP","GRASS","GRAVE","GREAT","GREEN","GRIEF","GRILL","GRIND","GROSS","GROUP","GROWN","GUARD","GUESS","GUIDE","GUILD","GUILT","HABIT","HARSH","HAVEN","HEART","HEAVY","HONOR","HORSE","HOTEL","HOUSE","HUMAN","HUMOR","HURRY","IDEAL","IMAGE","IMPLY","INDEX","INNER","INPUT","IRONY","ISSUE","JOINT","JUDGE","KARMA","KNIFE","KNOCK","KNOWN","LABEL","LARGE","LASER","LATER","LAUGH","LAYER","LEARN","LEAVE","LEGAL","LIGHT","LIMIT","LOCAL","LOGIC","LOOSE","LOVER","LOWER","LUCKY","MAGIC","MAJOR","MAKER","MANOR","MARCH","MATCH","MAYOR","MEDIA","MERCY","MERGE","MERIT","METAL","METER","MIGHT","MINOR","MINUS","MIXED","MODEL","MONEY","MONTH","MORAL","MOUNT","MOUSE","MOUTH","MOVIE","MUSIC","NASTY","NAVAL","NERVE","NEVER","NIGHT","NOBLE","NOISE","NORTH","NOTED","NOVEL","NURSE","OCEAN","OFFER","OFTEN","OLIVE","ONION","OPERA","ORDER","OTHER","OUTER","OWNED","OWNER","PAINT","PANEL","PANIC","PAPER","PARTY","PATCH","PAUSE","PEACE","PEARL","PHASE","PHONE","PHOTO","PIECE","PILOT","PIXEL","PIZZA","PLACE","PLAIN","PLANE","PLANT","PLATE","PLAZA","POINT","POLAR","POWER","PRESS","PRICE","PRIDE","PRIME","PRINT","PRIZE","PROOF","PROUD","PROVE","PULSE","PUNCH","QUEEN","QUEST","QUIET","QUOTA","QUOTE","RADAR","RADIO","RAISE","RALLY","RANGE","RAPID","RATIO","REACH","READY","REALM","REBEL","REFER","REIGN","RELAX","RELIC","REMIX","REPLY","RIGHT","RISEN","RIVER","ROCKY","ROUGH","ROUND","ROUTE","ROYAL","RULER","SAINT","SALAD","SAUCE","SCALE","SCARE","SCENE","SCORE","SCOUT","SENSE","SERVE","SETUP","SEVEN","SHADE","SHAKE","SHAME","SHAPE","SHARE","SHARP","SHIFT","SHINE","SHIRT","SHOCK","SHORT","SHOUT","SIGHT","SIXTH","SKILL","SKULL","SLATE","SLEEP","SLICE","SLIDE","SLOPE","SMART","SMILE","SMOKE","SNAKE","SOLAR","SOLID","SOLVE","SORRY","SOUTH","SPACE","SPARE","SPARK","SPEAK","SPEED","SPEND","SPICE","SPINE","SPLIT","SPOKE","SPORT","SPRAY","SQUAD","STACK","STAFF","STAGE","STAIN","STAKE","STAND","START","STATE","STEAM","STEEL","STICK","STILL","STOCK","STONE","STORE","STORM","STORY","STRAP","STRIP","STUCK","STUDY","STYLE","SUGAR","SUPER","SURGE","SWIFT","SWORD","TABLE","TAKEN","TASTE","TEACH","TEETH","TENSE","TERMS","THEME","THINK","THOSE","THREE","TIGHT","TIMER","TITLE","TODAY","TOPIC","TOTAL","TOUCH","TOUGH","TOWER","TOXIC","TRACE","TRACK","TRADE","TRAIL","TRAIN","TRAIT","TRASH","TRIAL","TRIBE","TRICK","TRUCK","TRULY","TRUST","TRUTH","TWIST","ULTRA","UNION","UNITE","UNTIL","UPPER","UPSET","URBAN","VALID","VALOR","VALUE","VAPOR","VAULT","VENOM","VERSE","VIDEO","VIGOR","VIRAL","VIRUS","VISIT","VISTA","VITAL","VIVID","VOICE","VOTER","WAIST","WATCH","WATER","WEARY","WEDGE","WEIRD","WHALE","WHICH","WHITE","WHOLE","WITCH","WORLD","WORSE","WORST","WORTH","WOULD","WRATH","WRITE","YACHT","YIELD","YOUNG","YOUTH","ZEBRA"];
+
+const WORDS_ID = ["ABANG","ABSEN","AGAMA","AGUNG","AKHIR","AKTIF","ALARM","ALAMI","ALANG","ALBUM","ALIAS","ALTAR","AMBIL","AMPUN","ANDAI","ANEKA","ANGKA","ANGIN","ANJUR","ANTRI","ANTAR","APUNG","ARANG","ASING","ASPAL","ASYIK","ATLET","AWANG","BABAK","BADAN","BAJAK","BAKAR","BAKAT","BALIK","BAWAH","BAYAM","BAYAR","BAZAR","BEBAN","BEBAS","BEKAL","BEKAS","BELAH","BELUM","BENCI","BENIH","BESAR","BETON","BIDAN","BIJAK","BILAH","BINAR","BILIK","BOCAH","BOLOS","BOTAK","BUBUK","BUGAR","BUKAN","BULAN","BULAT","BUNUH","BURUK","BURUH","BUSUK","BUTUH","CACAT","CAKAR","CAPAI","CEGAH","CEKAL","CEMAS","CEPAT","CERAH","CINTA","CUACA","CUKUP","CULIK","CURAM","DALAM","DAMAI","DANAU","DAPUR","DARAH","DARAT","DEBUR","DEKAT","DEMAM","DEPAN","DERAS","DERAP","DESAH","DESAK","DUDUK","DUNIA","DUSTA","DUSUN","FAJAR","FAKTA","GALAK","GANAS","GANDA","GARPU","GELAP","GELAR","GERAK","GERAM","GIGIH","GINCU","GUGAT","GURIH","HABIS","HADIR","HAFAL","HALAL","HALUS","HANTU","HARAP","HARGA","HASIL","HEMAT","HIDUP","HIJAU","HITAM","HUJAN","HUMOR","HURUF","IMBAL","INJAK","INSAN","INTAI","JAHAT","JALAN","JANDA","JARAK","JAWAB","JELAS","JENUH","JIMAT","JOROK","JUMAT","JUJUR","JUMPA","KABAR","KACAU","KAGET","KANAN","KAPAL","KARET","KASIH","KASAR","KECIL","KEJAM","KERAS","KERJA","KIDAL","KILAP","KIRIM","KLAIM","KOLAM","KOTOR","KUASA","KULIT","KURSI","KUSUT","LAPAR","LAYAK","LEMAH","LEPAS","LIHAT","LURUS","LUSUH","MAHAL","MALAS","MALAM","MANIS","MASAK","MERAH","MINTA","MOBIL","MUDAH","MUJUR","MULAI","MULUS","MUSUH","NAFAS","NAKAL","NALAR","NEKAT","NIKAH","OBATI","OBJEK","PADAT","PANAS","PANIK","PAPAN","PASAR","PATUH","PEDAS","PEKAT","PELUK","PENAT","PENUH","PERGI","PERLU","PILIH","POLOS","PUNYA","PUSAT","PUTIH","PUTUS","RAMAI","RAPAT","RAKUS","RAWAT","RESAH","RISAU","RIVAL","RUANG","RUMAH","RUSAK","SABAR","SAKIT","SALAH","SAMAR","SEHAT","SERTA","SIANG","SIAPA","SIKAT","SISWA","SOPAN","SUBUR","TAJAM","TAKUT","TAMAT","TANAH","TARIK","TEBAL","TEMAN","TEGAS","TIDAK","TIKUS","TIMUR","TIPIS","TIRAI","TOBAT","TOMAT","TUGAS","TULUS","TURUN","UDARA","WAKTU","WARGA","WARNA","WARAS","WARTA","WASIT","WELAS","YAKIN"];
+
+const VALID_EN = new Set(WORDS_EN);
+const VALID_ID = new Set(WORDS_ID);
+
+function getRandom(lang) {
+  const list = lang === 'id' ? WORDS_ID : WORDS_EN;
+  return list[Math.floor(Math.random() * list.length)];
+}
+function isValid(word, lang) {
+  return word.length === 5;
+}
+
+// ══════════════════════════════════════════════════════
+//  SOCKET
+// ══════════════════════════════════════════════════════
+const socket = io();
+
+// ══════════════════════════════════════════════════════
+//  UTILS
+// ══════════════════════════════════════════════════════
+let toastTimer;
+function showToast(msg, dur = 2500) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.style.display = 'block';
+  clearTimeout(toastTimer);
+  if (dur < 9999) toastTimer = setTimeout(() => el.style.display = 'none', dur);
+}
+function hideToast() { document.getElementById('toast').style.display = 'none'; }
+
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById('screen-' + id).classList.add('active');
+  window.scrollTo(0, 0);
+  hideToast();
+  if (id === 'single') {
+    initSingle();
+  }
+  if (id === 'battle-word') {
+    document.getElementById('battle-word-form').style.display = 'block';
+    document.getElementById('battle-word-locked').style.display = 'none';
+    document.getElementById('battle-waiting-opponent').style.display = 'none';
+    document.getElementById('battle-word-input').value = '';
+  }
+}
+
+function showErr(id, msg) {
+  const el = document.getElementById(id);
+  el.textContent = msg; el.style.display = 'block';
+  setTimeout(() => el.style.display = 'none', 3000);
+}
+
+// ══════════════════════════════════════════════════════
+//  GAME ENGINE (reusable)
+// ══════════════════════════════════════════════════════
+const KB_ROWS = [
+  ['Q','W','E','R','T','Y','U','I','O','P'],
+  ['A','S','D','F','G','H','J','K','L'],
+  ['ENTER','Z','X','C','V','B','N','M','⌫'],
+];
+
+function evaluateGuess(guess, target) {
+  const result = Array(5).fill('absent');
+  const tArr = target.split(''), gArr = guess.split('');
+  const used = Array(5).fill(false);
+  for (let i = 0; i < 5; i++) {
+    if (gArr[i] === tArr[i]) { result[i] = 'correct'; used[i] = true; }
+  }
+  for (let i = 0; i < 5; i++) {
+    if (result[i] === 'correct') continue;
+    for (let j = 0; j < 5; j++) {
+      if (!used[j] && gArr[i] === tArr[j]) { result[i] = 'present'; used[j] = true; break; }
+    }
+  }
+  return result;
+}
+
+function createGame({ boardId, kbId, solution, lang, maxGuesses = 10, onWin, onLose, onGuess }) {
+  let guesses = [], currentGuess = '', currentRow = 0;
+  let usedKeys = {}, done = false;
+
+  // Build board
+  const boardEl = document.getElementById(boardId);
+  boardEl.innerHTML = '';
+  const grid = document.createElement('div');
+  grid.className = 'grid';
+  for (let r = 0; r < maxGuesses; r++) {
+    const row = document.createElement('div');
+    row.className = 'grid-row';
+    row.id = `${boardId}-row-${r}`;
+    for (let c = 0; c < 5; c++) {
+      const tile = document.createElement('div');
+      tile.className = 'tile';
+      tile.id = `${boardId}-tile-${r}-${c}`;
+      row.appendChild(tile);
+    }
+    grid.appendChild(row);
+  }
+  boardEl.appendChild(grid);
+
+  // Build keyboard
+  const kbEl = document.getElementById(kbId);
+  kbEl.innerHTML = '';
+  KB_ROWS.forEach(keys => {
+    const row = document.createElement('div');
+    row.className = 'kb-row';
+    keys.forEach(k => {
+      const btn = document.createElement('button');
+      btn.className = 'key' + (k === 'ENTER' || k === '⌫' ? ' wide' : '');
+      btn.textContent = k;
+      btn.id = `${kbId}-key-${k}`;
+      btn.addEventListener('click', () => handleKey(k));
+      row.appendChild(btn);
+    });
+    kbEl.appendChild(row);
+  });
+
+  function updateTile(r, c, letter, state) {
+    const tile = document.getElementById(`${boardId}-tile-${r}-${c}`);
+    if (!tile) return;
+    tile.textContent = letter;
+    tile.className = 'tile' + (state ? ` ${state}` : letter ? ' filled' : '');
+    if (state) {
+      tile.style.transitionDelay = `${c * 0.08}s`;
+    } else {
+      tile.style.transitionDelay = '';
+    }
+  }
+
+  function updateCurrentRow() {
+    for (let c = 0; c < 5; c++) {
+      updateTile(currentRow, c, currentGuess[c] || '', null);
+    }
+  }
+
+  function shakeRow() {
+    const row = document.getElementById(`${boardId}-row-${currentRow}`);
+    if (!row) return;
+    row.classList.add('shake');
+    setTimeout(() => row.classList.remove('shake'), 400);
+  }
+
+  function handleKey(k) {
+    if (done) return;
+    if (k === 'ENTER') { submit(); return; }
+    if (k === '⌫' || k === 'BACKSPACE') {
+      currentGuess = currentGuess.slice(0, -1);
+      updateCurrentRow(); return;
+    }
+    if (/^[A-Z]$/.test(k) && currentGuess.length < 5) {
+      currentGuess += k;
+      updateCurrentRow();
+    }
+  }
+
+  function submit() {
+    if (currentGuess.length < 5) { shakeRow(); showToast('Kurang 5 huruf!'); return; }
+    if (!isValid(currentGuess, lang)) { shakeRow(); showToast('Kata tidak dikenal!'); return; }
+
+    const result = evaluateGuess(currentGuess, solution);
+    const row = currentGuess.split('').map((l, i) => ({ letter: l, state: result[i] }));
+
+    // Animate tiles
+    row.forEach(({ letter, state }, c) => {
+      setTimeout(() => updateTile(currentRow, c, letter, state), c * 80);
+    });
+
+    // Update keyboard
+    row.forEach(({ letter, state }) => {
+      const keyEl = document.getElementById(`${kbId}-key-${letter}`);
+      if (!keyEl) return;
+      const prev = usedKeys[letter];
+      if (!prev || (prev !== 'correct' && state === 'correct') || (prev === 'absent' && state === 'present')) {
+        usedKeys[letter] = state;
+        setTimeout(() => {
+          keyEl.className = `key${letter.length > 1 ? ' wide' : ''} ${state}`;
+        }, 400);
+      }
+    });
+
+    guesses.push(row);
+    if (onGuess) onGuess(currentGuess, result);
+
+    const won = result.every(r => r === 'correct');
+    currentGuess = '';
+    currentRow++;
+
+    if (won) {
+      done = true;
+      setTimeout(() => { showToast('🎉 Luar biasa!', 9999); if (onWin) onWin(currentRow - 1); }, 500);
+    } else if (guesses.length >= maxGuesses) {
+      done = true;
+      setTimeout(() => { showToast(`Jawaban: ${solution}`, 9999); if (onLose) onLose(); }, 500);
+    }
+  }
+
+  function keyHandler(e) {
+    const k = e.key.toUpperCase();
+    if (k === 'ENTER' || k === 'BACKSPACE' || /^[A-Z]$/.test(k)) handleKey(k);
+  }
+
+  // Keyboard listener
+  document.addEventListener('keydown', keyHandler);
+  boardEl._removeKeyHandler = () => document.removeEventListener('keydown', keyHandler);
+
+  return { handleKey, destroy: () => document.removeEventListener('keydown', keyHandler) };
+}
+
+// ══════════════════════════════════════════════════════
+//  SINGLEPLAYER
+// ══════════════════════════════════════════════════════
+let singleLang = 'id';
+let singleGame = null;
+
+function setSingleLang(lang) {
+  singleLang = lang;
+  document.getElementById('single-lang-id').className = 'lang-btn' + (lang === 'id' ? ' active' : '');
+  document.getElementById('single-lang-en').className = 'lang-btn' + (lang === 'en' ? ' active' : '');
+  initSingle();
+}
+
+function initSingle() {
+  if (singleGame) singleGame.destroy();
+  document.getElementById('single-again-btn').style.display = 'none';
+  hideToast();
+  const solution = getRandom(singleLang);
+  singleGame = createGame({
+    boardId: 'single-board', kbId: 'single-kb',
+    solution, lang: singleLang,
+    onWin: () => {
+      document.getElementById('single-again-btn').textContent = '🎉 Main Lagi!';
+      document.getElementById('single-again-btn').style.display = 'block';
+    },
+    onLose: () => {
+      document.getElementById('single-again-btn').textContent = '😢 Coba Lagi!';
+      document.getElementById('single-again-btn').style.display = 'block';
+    }
+  });
+}
+
+// ══════════════════════════════════════════════════════
+//  BATTLE MODE
+// ══════════════════════════════════════════════════════
+let battleLang = 'id';
+let battleRole = null;
+let battleRoomId = '';
+let battleGame = null;
+
+function setBattleLang(lang) {
+  battleLang = lang;
+  document.getElementById('battle-lang-id').className = 'lang-btn' + (lang === 'id' ? ' active' : '');
+  document.getElementById('battle-lang-en').className = 'lang-btn' + (lang === 'en' ? ' active' : '');
+}
+
+function battleCreate() {
+  const name = document.getElementById('battle-name').value.trim();
+  if (!name) { showErr('battle-menu-err', 'Masukkan nama kamu!'); return; }
+  socket.emit('battle:create', { name, lang: battleLang });
+}
+
+function battleJoin() {
+  const name = document.getElementById('battle-name').value.trim();
+  const code = document.getElementById('battle-join-code').value.trim().toUpperCase();
+  if (!name) { showErr('battle-menu-err', 'Masukkan nama kamu!'); return; }
+  if (!code) { showErr('battle-menu-err', 'Masukkan kode room!'); return; }
+  socket.emit('battle:join', { roomId: code, name });
+}
+
+function battleSetWord() {
+  const word = document.getElementById('battle-word-input').value.trim().toUpperCase();
+  if (word.length !== 5) { showErr('battle-word-err', 'Harus 5 huruf!'); return; }
+  if (!isValid(word, battleLang)) { showErr('battle-word-err', 'Kata tidak valid!'); return; }
+  socket.emit('battle:set_word', { roomId: battleRoomId, word });
+}
+
+// Socket events - Battle
+socket.on('battle:created', ({ roomId, role }) => {
+  battleRoomId = roomId;
+  battleRole = role;
+  document.getElementById('battle-room-badge').textContent = '#' + roomId;
+  document.getElementById('battle-role-label').textContent = 'Player 1';
+  document.getElementById('battle-waiting-opponent').style.display = 'block';
+  document.getElementById('battle-word-form').style.display = 'none';
+  showScreen('battle-word');
+});
+
+socket.on('battle:joined', ({ roomId, role, lang }) => {
+  battleRoomId = roomId;
+  battleRole = role;
+  battleLang = lang;
+  document.getElementById('battle-room-badge').textContent = '#' + roomId;
+  document.getElementById('battle-role-label').textContent = 'Player 2';
+  document.getElementById('battle-waiting-opponent').style.display = 'none';
+  document.getElementById('battle-word-form').style.display = 'block';
+  showScreen('battle-word');
+});
+
+socket.on('battle:opponent_joined', ({ name }) => {
+  showToast(`${name} bergabung! Pilih kata kamu 👇`, 4000);
+  document.getElementById('battle-waiting-opponent').style.display = 'none';
+  document.getElementById('battle-word-form').style.display = 'block';
+});
+
+socket.on('battle:enter_word', () => {
+  document.getElementById('battle-waiting-opponent').style.display = 'none';
+  document.getElementById('battle-word-form').style.display = 'block';
+});
+
+socket.on('battle:word_locked', () => {
+  document.getElementById('battle-word-form').style.display = 'none';
+  document.getElementById('battle-word-locked').style.display = 'block';
+});
+
+socket.on('battle:start', ({ guessWord, opponentName, yourWord }) => {
+  if (battleGame) battleGame.destroy();
+  document.getElementById('battle-game-room-badge').textContent = '#' + battleRoomId;
+  document.getElementById('battle-vs-label').textContent = `Menebak kata milik ${opponentName}`;
+  document.getElementById('battle-winner-banner').style.display = 'none';
+  document.getElementById('battle-end-btns').style.display = 'none';
+  hideToast();
+
+  showScreen('battle-game');
+
+  battleGame = createGame({
+    boardId: 'battle-board', kbId: 'battle-kb',
+    solution: guessWord, lang: battleLang,
+    onWin: (row) => {
+      socket.emit('battle:win', { roomId: battleRoomId });
+    },
+    onLose: () => {
+      document.getElementById('battle-end-btns').style.display = 'flex';
+    }
+  });
+});
+
+socket.on('battle:result', ({ winnerId, winnerName }) => {
+  if (battleGame) battleGame.destroy();
+  const iWon = winnerId === socket.id;
+  const banner = document.getElementById('battle-winner-banner');
+  banner.style.display = 'block';
+  banner.className = 'winner-banner ' + (iWon ? 'me-win' : 'me-lose');
+  banner.innerHTML = `
+    <div style="font-size:36px;margin-bottom:8px;">${iWon ? '🏆' : '💀'}</div>
+    <div class="mono" style="font-size:22px;font-weight:900;letter-spacing:3px;color:${iWon ? 'var(--correct)' : '#e05555'}">
+      ${iWon ? 'KAMU MENANG!' : 'KAMU KALAH!'}
+    </div>
+    <div style="font-size:12px;color:var(--muted);margin-top:4px;">${iWon ? '' : winnerName + ' menang lebih dulu!'}</div>
+  `;
+  document.getElementById('battle-end-btns').style.display = 'flex';
+  hideToast();
+});
+
+socket.on('battle:opponent_left', () => {
+  showToast('Lawan meninggalkan game 😢', 4000);
+  if (battleGame) battleGame.destroy();
+  document.getElementById('battle-end-btns').style.display = 'flex';
+  // Hide "main lagi" since no opponent
+  document.getElementById('battle-again-btn').style.display = 'none';
+});
+
+socket.on('battle:error', (msg) => showErr('battle-menu-err', msg));
+
+function battleRestart() {
+  socket.emit('battle:restart', { roomId: battleRoomId });
+}
+
+function battleLeave() {
+  socket.emit('battle:leave', { roomId: battleRoomId });
+  showScreen('home');
+}
+
+// ══════════════════════════════════════════════════════
+//  RACE MODE
+// ══════════════════════════════════════════════════════
+let raceLang = 'id';
+let raceRoomId = '';
+let racePlayerName = '';
+let raceGame = null;
+let raceDone = false;
+let raceIsHost = false;
+
+function setRaceLang(lang) {
+  raceLang = lang;
+  document.getElementById('race-lang-id').className = 'lang-btn' + (lang === 'id' ? ' active' : '');
+  document.getElementById('race-lang-en').className = 'lang-btn' + (lang === 'en' ? ' active' : '');
+}
+
+let _pendingRaceSolution = '';
+let _pendingRaceLang = '';
+
+function raceCreate() {
+  const name = document.getElementById('race-name').value.trim();
+  if (!name) { showErr('race-menu-err', 'Masukkan nama kamu!'); return; }
+  _pendingRaceSolution = getRandom(raceLang);
+  _pendingRaceLang = raceLang;
+  racePlayerName = name;
+  raceIsHost = true;
+  socket.emit('race:create', { name, lang: raceLang, solution: _pendingRaceSolution });
+}
+
+function raceJoin() {
+  const name = document.getElementById('race-name').value.trim();
+  const code = document.getElementById('race-join-code').value.trim().toUpperCase();
+  if (!name) { showErr('race-menu-err', 'Masukkan nama kamu!'); return; }
+  if (!code) { showErr('race-menu-err', 'Masukkan kode room!'); return; }
+  racePlayerName = name;
+  raceIsHost = false;
+  socket.emit('race:join', { roomId: code, name });
+}
+
+function startRaceGame(solution, lang) {
+  if (raceGame) raceGame.destroy();
+  raceDone = false;
+  document.getElementById('race-winner-banner').style.display = 'none';
+  document.getElementById('race-end-btns').style.display = 'none';
+  // Only host can restart
+  document.getElementById('race-again-btn').style.display = raceIsHost ? 'block' : 'none';
+  hideToast();
+
+  raceGame = createGame({
+    boardId: 'race-board', kbId: 'race-kb',
+    solution, lang,
+    onGuess: () => {
+      socket.emit('race:guess', { roomId: raceRoomId });
+    },
+    onWin: (row) => {
+      raceDone = true;
+      socket.emit('race:win', { roomId: raceRoomId, guesses: row + 1 });
+    },
+    onLose: () => {
+      raceDone = true;
+      socket.emit('race:lose', { roomId: raceRoomId });
+      document.getElementById('race-end-btns').style.display = 'flex';
+    }
+  });
+}
+
+function renderScoreboard(players) {
+  const sb = document.getElementById('race-scoreboard');
+  const count = document.getElementById('race-player-count');
+  count.textContent = `PEMAIN (${players.length})`;
+  sb.innerHTML = '';
+  players.forEach((p, i) => {
+    const row = document.createElement('div');
+    row.className = 'player-row' + (p.name === racePlayerName ? ' me' : '');
+    const medal = p.won ? (i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '✅') : '⏳';
+    row.innerHTML = `
+      <span style="font-size:14px;width:22px;text-align:center;">${medal}</span>
+      <span class="player-name" style="${p.name === racePlayerName ? 'color:var(--accent)' : ''}">${p.name}${p.name === racePlayerName ? ' <span style="font-size:11px;color:var(--muted)">(kamu)</span>' : ''}</span>
+      ${p.won ? `<span class="player-status">${p.guesses} tebakan</span>` : ''}
+    `;
+    sb.appendChild(row);
+  });
+}
+
+// Socket events - Race
+socket.on('race:created', ({ roomId }) => {
+  raceRoomId = roomId;
+  document.getElementById('race-room-badge').textContent = '#' + roomId;
+  showScreen('race-game');
+  startRaceGame(_pendingRaceSolution, _pendingRaceLang);
+});
+
+socket.on('race:joined', ({ solution, lang }) => {
+  raceLang = lang;
+  showScreen('race-game');
+  startRaceGame(solution, lang);
+});
+
+socket.on('race:players', (players) => {
+  renderScoreboard(players);
+});
+
+socket.on('race:winner', (winner) => {
+  const iWon = winner.name === racePlayerName;
+  const banner = document.getElementById('race-winner-banner');
+  banner.style.display = 'block';
+  banner.className = 'winner-banner ' + (iWon ? 'me-win' : 'me-lose');
+  banner.innerHTML = `
+    <div style="font-size:28px;margin-bottom:6px;">${iWon ? '🏆' : '🎉'}</div>
+    <div class="mono" style="font-size:18px;font-weight:900;color:${iWon ? 'var(--correct)' : 'var(--present)'}">
+      ${iWon ? 'KAMU MENANG!' : winner.name + ' menang!'}
+    </div>
+    <div style="font-size:12px;color:var(--muted);margin-top:3px;">dalam ${winner.guesses} tebakan</div>
+  `;
+  document.getElementById('race-end-btns').style.display = 'flex';
+  if (!raceIsHost) document.getElementById('race-again-btn').style.display = 'none';
+});
+
+socket.on('race:restarted', ({ solution, lang }) => {
+  raceLang = lang;
+  showToast('🔄 Ronde baru dimulai!', 2000);
+  startRaceGame(solution, lang);
+});
+
+socket.on('race:error', (msg) => showErr('race-menu-err', msg));
+
+function raceRestart() {
+  if (!raceIsHost) return;
+  _pendingRaceSolution = getRandom(raceLang);
+  socket.emit('race:restart', { roomId: raceRoomId, solution: _pendingRaceSolution });
+}
+
+function raceLeave() {
+  socket.emit('race:leave', { roomId: raceRoomId });
+  showScreen('home');
+}
+
+// ══════════════════════════════════════════════════════
+//  INIT
+// ══════════════════════════════════════════════════════
+window.addEventListener('load', () => {
+  ['single-board','battle-board','race-board'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = '';
+  });
+});
+</script>
+</body>
+</html>
