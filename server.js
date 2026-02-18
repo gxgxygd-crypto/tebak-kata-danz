@@ -11,7 +11,7 @@ app.use(express.static(path.join(__dirname, "public")));
 
 // ─── State ────────────────────────────────────────────────────────────────────
 const battleRooms = {}; // { roomId: { p1: {id, name, word}, p2: {id, name, word}, winner, lang } }
-const raceRooms   = {}; // { roomId: { players: {id: {name,won,guesses}}, solution, lang, winner, started } }
+const raceRooms   = {}; // { roomId: { players: {id: {name,won,guesses}}, solution, lang, winner, hostId } }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function makeId(len = 5) {
@@ -97,7 +97,27 @@ io.on("connection", (socket) => {
     const winnerName = room.p1?.id === socket.id ? room.p1.name : room.p2?.name;
     io.to(roomId).emit("battle:result", { winnerId: socket.id, winnerName });
     console.log(`🏆 Battle winner: ${winnerName} in room: ${roomId}`);
-    setTimeout(() => { delete battleRooms[roomId]; }, 60000);
+  });
+
+  // Restart battle in same room
+  socket.on("battle:restart", ({ roomId }) => {
+    const room = battleRooms[roomId];
+    if (!room) return;
+    room.p1.word = null;
+    room.p2.word = null;
+    room.winner = null;
+    io.to(roomId).emit("battle:enter_word");
+    console.log(`🔄 Battle restarted in room: ${roomId}`);
+  });
+
+  // Leave battle room
+  socket.on("battle:leave", ({ roomId }) => {
+    const room = battleRooms[roomId];
+    if (room) {
+      io.to(roomId).emit("battle:opponent_left");
+      delete battleRooms[roomId];
+    }
+    socket.leave(roomId);
   });
 
   // ══════════════════════════════════
@@ -111,6 +131,7 @@ io.on("connection", (socket) => {
       solution,
       lang,
       winner: null,
+      hostId: socket.id,
       players: {
         [socket.id]: { name, won: false, guesses: 0 },
       },
@@ -154,7 +175,35 @@ io.on("connection", (socket) => {
     io.to(roomId).emit("race:players", getPlayerList(room));
     io.to(roomId).emit("race:winner", room.winner);
     console.log(`🏆 Race winner: ${room.winner.name} in room: ${roomId}`);
-    setTimeout(() => { delete raceRooms[roomId]; }, 120000);
+  });
+
+  // Restart race (only host)
+  socket.on("race:restart", ({ roomId, solution }) => {
+    const room = raceRooms[roomId];
+    if (!room || room.hostId !== socket.id) return;
+    room.solution = solution;
+    room.winner = null;
+    Object.keys(room.players).forEach(pid => {
+      room.players[pid].won = false;
+      room.players[pid].guesses = 0;
+    });
+    io.to(roomId).emit("race:restarted", { solution, lang: room.lang });
+    io.to(roomId).emit("race:players", getPlayerList(room));
+    console.log(`🔄 Race restarted in room: ${roomId}`);
+  });
+
+  // Leave race room
+  socket.on("race:leave", ({ roomId }) => {
+    const room = raceRooms[roomId];
+    if (room && room.players[socket.id]) {
+      delete room.players[socket.id];
+      if (Object.keys(room.players).length === 0) {
+        delete raceRooms[roomId];
+      } else {
+        io.to(roomId).emit("race:players", getPlayerList(room));
+      }
+    }
+    socket.leave(roomId);
   });
 
   // Player loses race
