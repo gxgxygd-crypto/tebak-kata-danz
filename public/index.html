@@ -421,11 +421,16 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
 // ═══════════════════════════════════════════════
 //  CONFIG
 // ═══════════════════════════════════════════════
-// Auto-detect WebSocket URL
-// Works whether page is opened via http:// or file://
-const WS_URL = (location.protocol === 'file:')
-  ? 'ws://localhost:3000'
-  : `ws://${location.host}`;
+// ── Auto-detect WebSocket URL ────────────────────────────
+// Handles: file://, http://localhost, https://railway.app
+function buildWsUrl() {
+  if (location.protocol === 'file:') return 'ws://localhost:3000';
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  // location.host includes port if non-standard (e.g. localhost:3000)
+  return `${proto}//${location.host}`;
+}
+const WS_URL = buildWsUrl();
+console.log('[BlockVerse] WS_URL =', WS_URL);
 const COLORS = ['#e74c3c','#3498db','#2ecc71','#f39c12','#9b59b6','#1abc9c','#00e5ff','#ff6b35','#ff3355','#ffd700'];
 const BLOCK_TYPES = [
   {id:'grass',  icon:'🌿', color:0x3a7d44, label:'Grass'},
@@ -625,9 +630,8 @@ function connectWS() {
   };
 
   ws.onerror = (err) => {
-    // onerror always fires before onclose, so we just log here
     console.error('[WS] error', err);
-    setStatus('❌ Cannot reach server — is "node server.js" running?');
+    setStatus(`❌ Gagal connect ke ${WS_URL} — pastikan server.js sudah di-update & Railway sudah redeploy`);
     document.getElementById('ws-indicator').textContent = '● Error';
     document.getElementById('ws-indicator').style.color = 'var(--red)';
   };
@@ -639,9 +643,9 @@ function connectWS() {
     document.getElementById('ws-indicator').style.color = 'var(--red)';
 
     if (evt.wasClean) {
-      setStatus('🔌 Disconnected cleanly. Refresh to reconnect.');
+      setStatus('🔌 Disconnected. Refresh to reconnect.');
     } else {
-      setStatus(`🔌 Lost connection (code ${evt.code}). Retrying in 3s...`);
+      setStatus(`🔌 Lost connection (code ${evt.code}). Retrying in 3s... [${WS_URL}]`);
       wsReconnectTimer = setTimeout(connectWS, 3000);
     }
   };
