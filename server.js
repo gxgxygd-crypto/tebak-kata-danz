@@ -207,9 +207,14 @@ setInterval(() => {
   console.log(`[${new Date().toLocaleTimeString()}] Connections:${clients.size} Players:${p}`);
 }, 30_000);
 
+// ── Health check (Railway needs this) ─────────────────────
+app.get('/health', (_req, res) => res.json({ status:'ok', connections: clients.size }));
+
+// ── Listen on 0.0.0.0 — REQUIRED for Railway/Docker ───────
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`\n🎮 BlockVerse READY`);
-  console.log(`   → http://localhost:${PORT}`);
-  console.log(`   → ws://localhost:${PORT}\n`);
+  console.log(`   PORT=${PORT}  (Railway injects PORT env automatically)`);
+  console.log(`   HTTP  → http://0.0.0.0:${PORT}`);
+  console.log(`   WS    → ws://0.0.0.0:${PORT}\n`);
 });
