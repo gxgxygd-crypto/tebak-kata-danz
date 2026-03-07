@@ -840,10 +840,16 @@ function physicsUpdate(dt){
   });
   if(pm.position.y<-1&&gPl.onGrd){}
   if(pm.position.y<-20){const sp=gObs.find(o=>o.type==='spawn');pm.position.set(sp?sp.mesh.position.x:0,(sp?sp.mesh.position.y:2)+1,sp?sp.mesh.position.z:0);gPl.vel.set(0,0,0);toast('💀 Jatuh! Reset ke spawn.','warn');}
-  // 3rd-person cam
-  const tgt=new THREE.Vector3(pm.position.x,pm.position.y+1,pm.position.z);
-  gCam.position.lerp(tgt.clone().add(new THREE.Vector3(-9,5.5,9)),4*dt);
-  gCam.lookAt(tgt);
+  // 3rd-person cam – ikut di belakang player
+  const camDist=9, camH=6;
+  const idealX=pm.position.x - Math.sin(pm.rotation.y)*camDist;
+  const idealZ=pm.position.z - Math.cos(pm.rotation.y)*camDist;
+  const idealY=pm.position.y + camH;
+  const lf=Math.min(1, 7*dt);
+  gCam.position.x+=(idealX-gCam.position.x)*lf;
+  gCam.position.y+=(idealY-gCam.position.y)*lf;
+  gCam.position.z+=(idealZ-gCam.position.z)*lf;
+  gCam.lookAt(pm.position.x, pm.position.y+1.5, pm.position.z);
 }
 
 // JOYSTICK (mobile)
